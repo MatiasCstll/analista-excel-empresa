@@ -131,16 +131,51 @@ DATOS CRUDOS A PROCESAR:
 {datos_crudos[:45000]}
 """
 
-    respuesta = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            temperature=0.1,
-        ),
-    )
+    modelos = ["gemini-3.8-flash"]
+    ultimo_error = None
+    buscados = False
 
-    return json.loads(respuesta.text)
+    idx = 0
+    while idx < len(modelos):
+        modelo = modelos[idx]
+        idx += 1
+        try:
+            respuesta = client.models.generate_content(
+                model=modelo,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1,
+                ),
+            )
+            texto_json = respuesta.text.strip()
+            if texto_json.startswith("```"):
+                texto_json = re.sub(r"^```(?:json)?\s*|\s*```$", "", texto_json)
+            return json.loads(texto_json)
+        except Exception as e:
+            ultimo_error = e
+            err_str = str(e)
+            if "404" in err_str or "NOT_FOUND" in err_str:
+                if not buscados:
+                    buscados = True
+                    try:
+                        for m in client.models.list():
+                            nombre_m = getattr(m, "name", "").replace("models/", "")
+                            if (
+                                "flash" in nombre_m
+                                and not any(
+                                    x in nombre_m
+                                    for x in ("audio", "image", "tts", "embedding", "custom")
+                                )
+                                and nombre_m not in modelos
+                            ):
+                                modelos.append(nombre_m)
+                    except Exception:
+                        pass
+                continue
+            raise e
+
+    raise ultimo_error
 
 
 # ---------------------------------------------------------
